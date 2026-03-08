@@ -1,0 +1,189 @@
+from flask import Flask, jsonify, request, Response
+from device_manager import DeviceManager
+from audio_manager import AudioManager
+import logging
+import threading
+from collections import deque
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# ── Config — update these IPs after checking Serial Monitor ──
+ESP_CAM_IP  = "192.168.137.52"   # GOOUUU ESP32-S3-CAM
+ESP_GPS_IP  = "192.168.137.xx"   # ESP32 WROOM-32 GPS node  ← update this
+
+devices = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP)
+audio   = AudioManager()
+
+# ── Continuous listening buffer ──
+transcripts = deque(maxlen=50)  # keeps last 50 transcriptions
+
+def _on_transcript(result):
+    transcripts.append(result)
+
+listener_thread = threading.Thread(
+    target=audio.listen_continuous,
+    kwargs={"chunk_seconds": 5, "callback": _on_transcript},
+    daemon=True,
+)
+
+# ═══════════════════════════════════════════════════════════
+#  DOCS — agent reads this first
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/docs", methods=["GET"])
+def docs():
+    return jsonify({
+        "server": "Robot Control Server",
+        "description": "Flask API for controlling ESP32 camera, GPS, LEDs and EPOS audio",
+        "base_url": "http://localhost:5000",
+        "endpoints": [
+            {
+                "path": "/docs",
+                "method": "GET",
+                "description": "This documentation"
+            },
+            {
+                "path": "/devices/status",
+                "method": "GET",
+                "description": "Ping all ESP32 devices and return online status"
+            },
+            {
+                "path": "/camera/capture",
+                "method": "GET",
+                "description": "Capture a single JPEG image from ESP32-S3-CAM",
+                "response": "image/jpeg"
+            },
+            {
+                "path": "/camera/stream",
+                "method": "GET",
+                "description": "Proxy MJPEG stream from ESP32-S3-CAM for YOLO inference"
+            },
+            {
+                "path": "/gps",
+                "method": "GET",
+                "description": "Get current GPS location from GPS node",
+                "response": {"lat": 0.0, "lng": 0.0, "sats": 0, "kmh": 0.0, "fix": True}
+            },
+            {
+                "path": "/led",
+                "method": "POST",
+                "description": "Control LED strip on ESP32-S3-CAM",
+                "params": {"state": "on | off", "brightness": "0-255"},
+                "example": "POST /led?state=on&brightness=200"
+            },
+            {
+                "path": "/audio/say",
+                "method": "POST",
+                "description": "Convert text to speech and play through EPOS device",
+                "body": {"text": "Hello world"}
+            },
+            {
+                "path": "/audio/listen",
+                "method": "POST",
+                "description": "Record audio from EPOS mic and transcribe with ElevenLabs",
+                "body": {"duration_seconds": 5},
+                "response": {"transcript": "...", "language": "en"}
+            },
+            {
+                "path": "/audio/transcripts",
+                "method": "GET",
+                "description": "Get recent transcripts from continuous listening",
+                "response": [{"transcript": "...", "language": "en", "duration_seconds": 5}]
+            },
+            {
+                "path": "/audio/devices",
+                "method": "GET",
+                "description": "List available audio input/output devices"
+            }
+        ]
+    })
+
+# ═══════════════════════════════════════════════════════════
+#  DEVICES
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/devices/status", methods=["GET"])
+def device_status():
+    return jsonify(devices.ping_all())
+
+# ═══════════════════════════════════════════════════════════
+#  CAMERA
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/camera/capture", methods=["GET"])
+def camera_capture():
+    img_bytes = devices.capture()
+    if img_bytes is None:
+        return jsonify({"error": "Camera unavailable"}), 503
+    return Response(img_bytes, mimetype="image/jpeg")
+
+@app.route("/camera/stream", methods=["GET"])
+def camera_stream():
+    return Response(
+        devices.stream(),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
+    )
+
+# ═══════════════════════════════════════════════════════════
+#  GPS
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/gps", methods=["GET"])
+def gps():
+    data = devices.get_gps()
+    if data is None:
+        return jsonify({"error": "GPS node unavailable"}), 503
+    return jsonify(data)
+
+# ═══════════════════════════════════════════════════════════
+#  LED
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/led", methods=["POST"])
+def led():
+    state      = request.args.get("state", "off")
+    brightness = request.args.get("brightness", "255")
+    result = devices.set_led(state=state, brightness=brightness)
+    if result is None:
+        return jsonify({"error": "Camera ESP unavailable"}), 503
+    return jsonify(result)
+
+# ═══════════════════════════════════════════════════════════
+#  AUDIO
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/audio/devices", methods=["GET"])
+def audio_devices():
+    return jsonify(audio.list_devices())
+
+@app.route("/audio/say", methods=["POST"])
+def audio_say():
+    data = request.get_json()
+    if not data or "text" not in data:
+        return jsonify({"error": "Missing 'text' in request body"}), 400
+    audio.say(data["text"])
+    return jsonify({"status": "ok", "spoken": data["text"]})
+
+@app.route("/audio/listen", methods=["POST"])
+def audio_listen():
+    data     = request.get_json() or {}
+    duration = int(data.get("duration_seconds", 5))
+    result   = audio.listen(duration_seconds=duration)
+    return jsonify(result)
+
+@app.route("/audio/transcripts", methods=["GET"])
+def audio_transcripts():
+    """Return recent transcripts from the continuous listener."""
+    return jsonify(list(transcripts))
+
+# ═══════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    print("\n🤖 Robot Control Server starting...")
+    print(f"   CAM  → http://{ESP_CAM_IP}")
+    print(f"   GPS  → http://{ESP_GPS_IP}")
+    print(f"   API  → http://localhost:5000")
+    print(f"   Docs → http://localhost:5000/docs\n")
+    listener_thread.start()
+    app.run(host="0.0.0.0", port=5000, debug=True)

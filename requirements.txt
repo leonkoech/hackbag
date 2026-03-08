@@ -1,0 +1,5 @@
+flask
+requests
+pyaudio
+openai-whisper
+pyttsx3
