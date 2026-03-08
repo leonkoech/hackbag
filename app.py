@@ -1,6 +1,8 @@
 from flask import Flask, jsonify, request, Response
 from device_manager import DeviceManager
 from audio_manager import AudioManager
+from device_registry import DeviceRegistry
+from route_builder import build_routes, build_all_routes
 import logging
 import threading
 from collections import deque
@@ -12,8 +14,9 @@ logging.basicConfig(level=logging.INFO)
 ESP_CAM_IP  = "192.168.137.52"   # GOOUUU ESP32-S3-CAM
 ESP_GPS_IP  = "192.168.137.xx"   # ESP32 WROOM-32 GPS node  ← update this
 
-devices = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP)
-audio   = AudioManager()
+devices  = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP)
+audio    = AudioManager()
+registry = DeviceRegistry()
 
 # ── Continuous listening buffer ──
 transcripts = deque(maxlen=50)  # keeps last 50 transcriptions
@@ -95,6 +98,36 @@ def docs():
                 "path": "/audio/devices",
                 "method": "GET",
                 "description": "List available audio input/output devices"
+            },
+            {
+                "path": "/admin/scan",
+                "method": "POST",
+                "description": "Scan the network for new ESP32 devices with /docs endpoints",
+                "params": {"subnet": "192.168.137", "start": 1, "end": 255},
+                "response": {"new_devices": [], "routes_added": []}
+            },
+            {
+                "path": "/admin/devices",
+                "method": "GET",
+                "description": "List all registered devices and their docs"
+            },
+            {
+                "path": "/admin/register",
+                "method": "POST",
+                "description": "Manually register an ESP32 device by IP. Fetches /docs and creates proxy routes.",
+                "body": {"ip": "192.168.137.xx"},
+                "response": {"device": {}, "routes_added": []}
+            },
+            {
+                "path": "/admin/unregister",
+                "method": "POST",
+                "description": "Remove a registered device",
+                "body": {"ip": "192.168.137.xx"}
+            },
+            {
+                "path": "/admin/routes",
+                "method": "GET",
+                "description": "List all dynamic proxy routes currently active"
             }
         ]
     })
@@ -178,8 +211,79 @@ def audio_transcripts():
     return jsonify(list(transcripts))
 
 # ═══════════════════════════════════════════════════════════
+#  ADMIN — device discovery & dynamic routes
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/admin/scan", methods=["POST"])
+def admin_scan():
+    """Scan the network for new ESP32 devices, fetch their /docs, and create proxy routes."""
+    subnet = request.args.get("subnet", "192.168.137")
+    start = int(request.args.get("start", 1))
+    end = int(request.args.get("end", 255))
+
+    new_devices = registry.scan(subnet=subnet, ip_range=(start, end))
+    routes_added = []
+    for device in new_devices:
+        routes = build_routes(app, device)
+        routes_added.extend(routes)
+
+    return jsonify({
+        "new_devices": [d["ip"] for d in new_devices],
+        "routes_added": routes_added,
+    })
+
+@app.route("/admin/devices", methods=["GET"])
+def admin_devices():
+    """List all registered devices and their docs."""
+    return jsonify(registry.list_devices())
+
+@app.route("/admin/register", methods=["POST"])
+def admin_register():
+    """Manually register a device by IP. Fetches /docs and creates proxy routes."""
+    data = request.get_json()
+    if not data or "ip" not in data:
+        return jsonify({"error": "Missing 'ip' in request body"}), 400
+
+    ip = data["ip"]
+    docs = data.get("docs")  # optionally pass docs directly
+    device = registry.register(ip, docs=docs)
+
+    if "error" in device:
+        return jsonify(device), 502
+
+    routes = build_routes(app, device)
+    return jsonify({"device": device, "routes_added": routes})
+
+@app.route("/admin/unregister", methods=["POST"])
+def admin_unregister():
+    """Remove a registered device."""
+    data = request.get_json()
+    if not data or "ip" not in data:
+        return jsonify({"error": "Missing 'ip' in request body"}), 400
+
+    removed = registry.unregister(data["ip"])
+    return jsonify({"removed": removed, "ip": data["ip"]})
+
+@app.route("/admin/routes", methods=["GET"])
+def admin_routes():
+    """List all dynamic proxy routes."""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        if rule.rule.startswith("/device/"):
+            routes.append({
+                "path": rule.rule,
+                "methods": list(rule.methods - {"OPTIONS", "HEAD"}),
+            })
+    return jsonify(routes)
+
+# ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # Restore proxy routes for previously registered devices
+    restored = build_all_routes(app, registry)
+    for entry in restored:
+        print(f"   Restored routes for {entry['ip']}: {len(entry['routes'])} endpoint(s)")
+
     print("\n🤖 Robot Control Server starting...")
     print(f"   CAM  → http://{ESP_CAM_IP}")
     print(f"   GPS  → http://{ESP_GPS_IP}")

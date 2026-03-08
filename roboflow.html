@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Robot Control Server — System Architecture v2</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #060a12;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #fff;
+  }
+  .header { text-align: center; margin-bottom: 20px; }
+  .sup { font-size: 10px; letter-spacing: 6px; color: #44aaff; opacity: 0.7; margin-bottom: 6px; }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: 1px; }
+  .hint { font-size: 9px; color: #444; margin-top: 5px; letter-spacing: 3px; }
+  .legend { display: flex; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; justify-content: center; }
+  .li { display: flex; align-items: center; gap: 5px; font-size: 9px; color: #555; letter-spacing: 1px; text-transform: uppercase; }
+  .ld { width: 10px; height: 10px; border-radius: 2px; }
+  .wrap { background: #0a1020; border: 1px solid #1a2440; border-radius: 16px; overflow: auto; box-shadow: 0 0 80px #0006; }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 10px; margin-top: 20px; width: 100%; max-width: 1100px; }
+  .card { background: #0a1020; border-radius: 8px; padding: 10px 14px; }
+  .cl { font-size: 9px; color: #444; letter-spacing: 2px; margin-bottom: 4px; }
+  .cv { font-size: 12px; font-weight: 600; }
+  .flow-hint { margin-top: 18px; font-size: 10px; color: #333; letter-spacing: 2px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="sup">SYSTEM ARCHITECTURE v2.0</div>
+  <h1>Robot Control Server</h1>
+  <div class="hint">CLICK ANY NODE TO TRACE CONNECTIONS · HOVER FOR DETAILS</div>
+</div>
+
+<div class="legend">
+  <div class="li"><div class="ld" style="background:#00ff8822;border:1.5px solid #00ff88"></div>Agent</div>
+  <div class="li"><div class="ld" style="background:#4455ff22;border:1.5px solid #6677ff"></div>Flask Server</div>
+  <div class="li"><div class="ld" style="background:#ffffff08;border:1.5px solid #ffffff33"></div>Endpoint</div>
+  <div class="li"><div class="ld" style="background:#ff660022;border:1.5px solid #ff6600"></div>Admin</div>
+  <div class="li"><div class="ld" style="background:#ff880022;border:1.5px solid #ff8800"></div>ESP32</div>
+  <div class="li"><div class="ld" style="background:#ff44aa22;border:1.5px solid #ff44aa"></div>Audio</div>
+  <div class="li"><div class="ld" style="background:#ffffff08;border:1.5px solid #ffffff18"></div>Hardware</div>
+  <div class="li"><div class="ld" style="background:#00aaff22;border:1.5px dashed #00aaff"></div>Dynamic</div>
+</div>
+
+<div class="wrap">
+<svg id="svg" width="1100" height="700" style="display:block"></svg>
+</div>
+
+<div class="info-grid">
+  <div class="card" style="border:1px solid #ff880022;border-left:3px solid #ff8800"><div class="cl">ESP32-S3-CAM</div><div class="cv" style="color:#ff8800">192.168.137.52</div></div>
+  <div class="card" style="border:1px solid #ff880022;border-left:3px solid #ff8800"><div class="cl">GPS Node (WROOM-32)</div><div class="cv" style="color:#ff8800">192.168.137.xx</div></div>
+  <div class="card" style="border:1px solid #6677ff22;border-left:3px solid #6677ff"><div class="cl">Flask Server</div><div class="cv" style="color:#6677ff">localhost:5000</div></div>
+  <div class="card" style="border:1px solid #ff44aa22;border-left:3px solid #ff44aa"><div class="cl">STT Engine</div><div class="cv" style="color:#ff44aa">Whisper (local)</div></div>
+  <div class="card" style="border:1px solid #ff660022;border-left:3px solid #ff6600"><div class="cl">Device Discovery</div><div class="cv" style="color:#ff6600">Auto-scan + /docs</div></div>
+  <div class="card" style="border:1px solid #00aaff22;border-left:3px solid #00aaff"><div class="cl">New Device Routes</div><div class="cv" style="color:#00aaff">/devices/&lt;slug&gt;/...</div></div>
+</div>
+
+<div class="flow-hint">NEW ESP32 FLOW: PLUGIN → SCAN → READ /DOCS → AUTO-REGISTER → INSTANT ROUTES</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('svg');
+
+// ── Layout ──────────────────────────────────────────────
+const CX = [75, 255, 455, 480, 680, 900];
+const RC = 350, RS = 60;
+
+const NODES = [
+  // col, row, id, label, sub, type
+  [0, 0,    'agent',    'AI Agent',          'External Controller',     'agent'],
+  [1, 0,    'server',   'Flask Server',      'Raspberry Pi · :5000',    'server'],
+
+  // static endpoints
+  [2, -4,   'ep_status','devices/status',    'GET',                     'endpoint'],
+  [2, -3,   'ep_cap',   'camera/capture',    'GET',                     'endpoint'],
+  [2, -2,   'ep_stream','camera/stream',     'GET · MJPEG',             'endpoint'],
+  [2, -1,   'ep_gps',   '/gps',              'GET',                     'endpoint'],
+  [2,  0,   'ep_led',   '/led',              'POST',                    'endpoint'],
+  [2,  1,   'ep_say',   'audio/say',         'POST · TTS',              'endpoint'],
+  [2,  2,   'ep_listen','audio/listen',      'POST · Whisper',          'endpoint'],
+  [2,  3,   'ep_docs',  '/docs',             'GET',                     'endpoint'],
+
+  // admin endpoints
+  [3, -3.5, 'adm_scan', 'admin/scan',        'POST · scan network',     'admin'],
+  [3, -2.5, 'adm_reg',  'admin/register',    'POST · specific IP',      'admin'],
+  [3, -1.5, 'adm_devs', 'admin/devices',     'GET · list + routes',     'admin'],
+  [3, -0.5, 'adm_ping', 'admin/ping',        'GET',                     'admin'],
+  [3,  0.5, 'adm_rm',   'admin/remove',      'POST',                    'admin'],
+
+  // dynamic
+  [3,  2,   'dynamic',  '/devices/<slug>/...','Auto-generated routes',  'dynamic'],
+
+  // ESP32s
+  [4, -2,   'cam_esp',  'ESP32-S3-CAM',      'GOOUUU · .52',            'esp'],
+  [4,  0,   'gps_esp',  'ESP32 WROOM-32',    'GPS Node',                'esp'],
+  [4,  2,   'new_esp',  'New ESP32 ?',       'Auto-discovered',         'dynamic'],
+
+  // audio
+  [4,  3.5, 'epos',     'EPOS Adapt 660',    'USB-C',                   'audio'],
+
+  // hardware
+  [5, -3,   'camera',   'OV Camera',         'MJPEG',                   'hw'],
+  [5, -1.5, 'leds',     'LED Strip',         'PWM GPIO21',              'hw'],
+  [5,  0,   'neo6m',    'Neo-6M GPS',        'UART 9600',               'hw'],
+  [5,  2,   'hw_new',   'Any Sensor',        '/docs enabled',           'dynamic'],
+  [5,  3,   'mic',      'Microphone',        'Whisper STT',             'hw'],
+  [5,  4,   'speaker',  'Speaker',           'TTS output',              'hw'],
+];
+
+const EDGES = [
+  ['agent','server','HTTP','#00ff88',false],
+  ['server','ep_status','','#ffffff22',false],
+  ['server','ep_cap','','#ffffff22',false],
+  ['server','ep_stream','','#ffffff22',false],
+  ['server','ep_gps','','#ffffff22',false],
+  ['server','ep_led','','#ffffff22',false],
+  ['server','ep_say','','#ffffff22',false],
+  ['server','ep_listen','','#ffffff22',false],
+  ['server','ep_docs','','#ffffff22',false],
+  ['server','adm_scan','','#ff660066',false],
+  ['server','adm_reg','','#ff660066',false],
+  ['server','adm_devs','','#ff660066',false],
+  ['server','adm_ping','','#ff660066',false],
+  ['server','adm_rm','','#ff660066',false],
+  ['server','dynamic','auto-build','#00aaff',false],
+  ['adm_scan','cam_esp','discover','#ff6600',false],
+  ['adm_scan','gps_esp','discover','#ff6600',false],
+  ['adm_scan','new_esp','scan','#ff6600',true],
+  ['ep_cap','cam_esp','proxy','#44aaff',false],
+  ['ep_stream','cam_esp','proxy','#44aaff',false],
+  ['ep_gps','gps_esp','proxy','#44aaff',false],
+  ['ep_led','cam_esp','proxy','#44aaff',false],
+  ['dynamic','new_esp','proxy','#00aaff',true],
+  ['cam_esp','camera','','#666',false],
+  ['cam_esp','leds','','#666',false],
+  ['gps_esp','neo6m','','#666',false],
+  ['new_esp','hw_new','','#00aaff55',true],
+  ['ep_say','epos','','#ff44aa',false],
+  ['ep_listen','epos','','#ff44aa',false],
+  ['epos','mic','','#666',false],
+  ['epos','speaker','','#666',false],
+];
+
+const TS = {
+  agent:    {bg:'#00ff8818',bd:'#00ff88',tx:'#00ff88',ic:'◈'},
+  server:   {bg:'#4455ff18',bd:'#6677ff',tx:'#aabbff',ic:'⬡'},
+  endpoint: {bg:'#ffffff07',bd:'#ffffff33',tx:'#888',ic:'→'},
+  admin:    {bg:'#ff660018',bd:'#ff6600',tx:'#ffaa66',ic:'⚙'},
+  esp:      {bg:'#ff880018',bd:'#ff8800',tx:'#ffaa44',ic:'◉'},
+  audio:    {bg:'#ff44aa18',bd:'#ff44aa',tx:'#ff88cc',ic:'♫'},
+  hw:       {bg:'#ffffff07',bd:'#ffffff18',tx:'#666',ic:'○'},
+  dynamic:  {bg:'#00aaff10',bd:'#00aaff',tx:'#44ccff',ic:'✦'},
+};
+
+const HIGHLIGHTS = {
+  agent:    ['agent','server'],
+  server:   ['server','ep_status','ep_cap','ep_stream','ep_gps','ep_led','ep_say','ep_listen','ep_docs','adm_scan','adm_reg','adm_devs','adm_ping','adm_rm','dynamic'],
+  adm_scan: ['adm_scan','cam_esp','gps_esp','new_esp','server'],
+  dynamic:  ['dynamic','new_esp','hw_new','server'],
+  cam_esp:  ['cam_esp','camera','leds','ep_cap','ep_stream','ep_led'],
+  gps_esp:  ['gps_esp','neo6m','ep_gps'],
+  epos:     ['epos','mic','speaker','ep_say','ep_listen'],
+  new_esp:  ['new_esp','hw_new','dynamic','adm_scan'],
+};
+
+function pos(col, row) {
+  return { x: CX[col], y: RC + row * RS };
+}
+
+function nodePos(id) {
+  const n = NODES.find(n=>n[2]===id);
+  return pos(n[0], n[1]);
+}
+
+function el(tag, attrs={}) {
+  const e = document.createElementNS(NS, tag);
+  for(const [k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+  return e;
+}
+function txt(tag, attrs, text) {
+  const e = el(tag, attrs); e.textContent = text; return e;
+}
+
+// Grid bg
+for(let i=0;i<22;i++) svg.appendChild(el('line',{x1:0,y1:i*34,x2:1100,y2:i*34,stroke:'#ffffff04','stroke-width':1}));
+for(let i=0;i<32;i++) svg.appendChild(el('line',{x1:i*37,y1:0,x2:i*37,y2:700,stroke:'#ffffff03','stroke-width':1}));
+
+// Column separators
+[170,360,560,760].forEach(x=>svg.appendChild(el('line',{x1:x,y1:40,x2:x,y2:660,stroke:'#ffffff08','stroke-width':1,'stroke-dasharray':'3 6'})));
+
+// Column labels
+['AGENT','FLASK SERVER','API ENDPOINTS','ADMIN + DYNAMIC','ESP32 DEVICES','HARDWARE'].forEach((l,i)=>{
+  svg.appendChild(txt('text',{x:CX[i],y:24,'text-anchor':'middle',fill:'#ffffff15','font-size':8,'letter-spacing':3,'font-family':'monospace'},l));
+});
+
+const defs = el('defs');
+svg.appendChild(defs);
+
+const edgeLayer = el('g'); svg.appendChild(edgeLayer);
+const nodeLayer = el('g'); svg.appendChild(nodeLayer);
+const statusEl  = txt('text',{x:550,y:685,'text-anchor':'middle',fill:'#ffffff20','font-size':9,'font-family':'monospace','letter-spacing':2},'');
+svg.appendChild(statusEl);
+
+let active = null;
+
+function makeMarker(id, color) {
+  const m = el('marker',{id,markerWidth:6,markerHeight:6,refX:5,refY:3,orient:'auto'});
+  m.appendChild(el('path',{d:'M0,0 L6,3 L0,6 Z',fill:color}));
+  defs.appendChild(m);
+}
+
+function drawEdges(hl) {
+  edgeLayer.innerHTML='';
+  EDGES.forEach(([from,to,label,color,dashed])=>{
+    const isOn = hl.length===0 || (hl.includes(from) && hl.includes(to));
+    const a=nodePos(from), b=nodePos(to);
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const curve=`M${a.x},${a.y} C${a.x+dx*0.55},${a.y} ${b.x-dx*0.3},${b.y} ${b.x},${b.y}`;
+    const mid=`m-${from}-${to}`.replace(/[^a-z0-9-]/g,'');
+    makeMarker(mid, color);
+    const g=el('g',{opacity:isOn?1:0.08});
+    g.style.transition='opacity 0.25s';
+    const p=el('path',{d:curve,fill:'none',stroke:color,'stroke-width':isOn?2:1,'stroke-dasharray':dashed?'5 4':'none','marker-end':`url(#${mid})`});
+    if(isOn&&color!=='#ffffff22'&&color!=='#ff660066'&&color!=='#666') p.style.filter=`drop-shadow(0 0 5px ${color})`;
+    g.appendChild(p);
+    if(label&&isOn) {
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2-6;
+      g.appendChild(txt('text',{x:mx,y:my,'text-anchor':'middle',fill:color,'font-size':8,'font-family':'monospace',opacity:0.9},label));
+    }
+    edgeLayer.appendChild(g);
+  });
+}
+
+function drawNodes(hl) {
+  nodeLayer.innerHTML='';
+  NODES.forEach(([col,row,id,label,sub,type])=>{
+    const s=TS[type];
+    const {x,y}=pos(col,row);
+    const isEp=type==='endpoint'||type==='admin';
+    const w=isEp?148:158, h=isEp?42:54;
+    const isOn=hl.length===0||hl.includes(id);
+    const isSel=active===id;
+
+    const g=el('g',{transform:`translate(${x-w/2},${y-h/2})`});
+    g.style.cursor='pointer';
+
+    const rx=isEp?5:10;
+    const r=el('rect',{width:w,height:h,rx,fill:isSel?s.bd+'33':s.bg,stroke:isOn?s.bd:s.bd+'33','stroke-width':isSel?2:1});
+    r.style.transition='all 0.2s';
+    if(isSel) r.style.filter=`drop-shadow(0 0 12px ${s.bd})`;
+    g.appendChild(r);
+
+    // Dashed border for dynamic nodes
+    if(type==='dynamic') {
+      const r2=el('rect',{width:w,height:h,rx,fill:'none',stroke:s.bd,'stroke-width':1,'stroke-dasharray':'4 3',opacity:isOn?0.6:0.15});
+      g.appendChild(r2);
+    }
+
+    const ty=sub?h/2-6:h/2+5;
+    g.appendChild(txt('text',{x:w/2,y:ty,'text-anchor':'middle',fill:isOn?s.tx:s.tx+'33','font-size':isEp?10:12,'font-weight':600,'font-family':"'JetBrains Mono',monospace"},`${s.ic} ${label}`));
+    if(sub) g.appendChild(txt('text',{x:w/2,y:h/2+11,'text-anchor':'middle',fill:isOn?s.tx+'77':s.tx+'22','font-size':8,'font-family':"'JetBrains Mono',monospace"},sub));
+
+    g.addEventListener('click',()=>{
+      active=active===id?null:id;
+      const h2=active?(HIGHLIGHTS[active]||[active]):[];
+      drawEdges(h2); drawNodes(h2);
+      statusEl.textContent=active?`${active.toUpperCase()} — CLICK AGAIN TO CLEAR`:'';
+    });
+    g.addEventListener('mouseenter',()=>{ if(!active) { drawEdges(HIGHLIGHTS[id]||[id]); drawNodes(HIGHLIGHTS[id]||[id]); }});
+    g.addEventListener('mouseleave',()=>{ if(!active) { const allIds=NODES.map(n=>n[2]); drawEdges(allIds); drawNodes(allIds); }});
+
+    nodeLayer.appendChild(g);
+  });
+}
+
+const allIds=NODES.map(n=>n[2]); drawEdges(allIds); drawNodes(allIds);
+</script>
+</body>
+</html>
