@@ -143,6 +143,64 @@ curl http://localhost:5000/camera/stream --output stream.mjpeg
 
 ---
 
+## Vision
+
+### GET /camera/detect
+
+Run YOLOv8 object detection on a camera capture. Fast (~50ms), runs offline, recognizes 80 COCO classes (person, backpack, bottle, phone, laptop, etc).
+
+```bash
+curl http://localhost:5000/camera/detect
+```
+
+**Response:**
+```json
+{
+  "detections": [
+    {"class": "backpack", "confidence": 0.95, "bbox": [10.0, 20.0, 200.0, 400.0]},
+    {"class": "bottle", "confidence": 0.87, "bbox": [150.0, 100.0, 200.0, 300.0]}
+  ],
+  "count": 2
+}
+```
+
+**Errors:**
+- `503` — YOLO not installed or camera unavailable
+
+### GET /camera/identify
+
+Comprehensive identification using YOLO first, then Claude Vision. Claude recognizes anything YOLO can't: keys, wallet, cables, brands, text on objects, context.
+
+**Query params (optional):**
+| Param | Type | Description |
+|-------|------|-------------|
+| prompt | string | Custom question about the image (e.g. "Is there a wallet here?") |
+
+```bash
+# Default: identify everything
+curl http://localhost:5000/camera/identify
+
+# Custom prompt
+curl "http://localhost:5000/camera/identify?prompt=What%20items%20are%20missing%20from%20this%20backpack?"
+```
+
+**Response:**
+```json
+{
+  "detections": [{"class": "backpack", "confidence": 0.95, "bbox": [...]}],
+  "yolo_count": 1,
+  "claude": "I can see a navy blue backpack open on a table. Inside I can see a laptop, a water bottle, and a charging cable. I don't see sunscreen, a hat, or a first aid kit which you might want for a hike.",
+  "prompt": null
+}
+```
+
+**Fallback:** If `ANTHROPIC_API_KEY` is not set, returns YOLO-only results with `"claude": null`.
+
+**Errors:**
+- `503` — Camera unavailable
+
+---
+
 ## GPS
 
 ### GET /gps

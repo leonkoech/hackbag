@@ -63,6 +63,16 @@
       "command": "curl -s http://localhost:5000/admin/routes"
     },
     {
+      "name": "detect_objects",
+      "description": "Run fast YOLOv8 object detection on a camera capture. Identifies 80 common object types (backpack, bottle, phone, laptop, etc). Works offline.",
+      "command": "curl -s http://localhost:5000/camera/detect"
+    },
+    {
+      "name": "identify_scene",
+      "description": "Comprehensive scene identification using YOLO + Claude Vision. Recognizes everything: brands, text, keys, cables, context. Use for packing checks or detailed scene understanding. Optionally pass a question with ?prompt=...",
+      "command": "curl -s http://localhost:5000/camera/identify"
+    },
+    {
       "name": "read_api_docs",
       "description": "Read the full API documentation. Do this on startup to understand all available capabilities.",
       "command": "curl -s http://localhost:5000/docs"

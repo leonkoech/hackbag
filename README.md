@@ -1,7 +1,53 @@
-# Robot Control Server
+# Driftpak — Robot Control Server
 
 Flask API server that exposes ESP32 camera, GPS, LED and EPOS audio
 as clean HTTP endpoints for an AI agent to consume.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Raspberry Pi 5  (hostname: smartbag)                           │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  OpenClaw Agent ("Driftpak")          port 18789           │ │
+│  │  AI brain — reads transcripts, decides actions, speaks     │ │
+│  │  Connected to: Telegram bot (@smartbag_hackbot)            │ │
+│  └──────────────────────┬─────────────────────────────────────┘ │
+│                         │ curl commands                          │
+│  ┌──────────────────────▼─────────────────────────────────────┐ │
+│  │  Flask Server (app.py)                port 5000            │ │
+│  │                                                            │ │
+│  │  /audio/say ──────→ ElevenLabs TTS ──→ EPOS speaker       │ │
+│  │  /audio/listen ←── EPOS mic ──→ ElevenLabs STT            │ │
+│  │  /audio/transcripts  (continuous background listener)      │ │
+│  │  /camera/capture ─────→ HTTP GET ──→ ESP32-CAM             │ │
+│  │  /camera/detect ──────→ capture + YOLOv8 (offline)         │ │
+│  │  /camera/identify ────→ YOLO + Claude Vision (cloud)       │ │
+│  │  /gps ────────────────→ HTTP GET ──→ ESP32-GPS             │ │
+│  │  /led ────────────────→ HTTP POST ─→ ESP32-CAM             │ │
+│  │  /admin/scan ─────────→ discover new ESP32 devices         │ │
+│  └──────────┬──────────────────────────────────┬──────────────┘ │
+│             │ USB                              │ WiFi            │
+│  ┌──────────▼──────────┐          ┌────────────▼─────────────┐  │
+│  │  EPOS Adapt 660     │          │  ESP32 Devices           │  │
+│  │  Microphone + Speaker│          │  Camera (192.168.137.52) │  │
+│  │  (USB-C to Pi)      │          │  GPS    (192.168.137.xx) │  │
+│  └─────────────────────┘          │  LEDs   (on camera board)│  │
+│                                   └──────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+         │                                    │
+         │ Internet (cloud APIs)              │ All on same WiFi
+         ▼                                    │ hotspot network
+  ┌──────────────┐                            │
+  │ ElevenLabs   │                     ┌──────▼──────┐
+  │ (TTS + STT)  │                     │ WiFi Hotspot│
+  ├──────────────┤                     │ 192.168.137 │
+  │ Anthropic    │                     └─────────────┘
+  │ (Claude      │
+  │  Vision)     │
+  └──────────────┘
+```
 
 ## Setup
 
