@@ -6,7 +6,8 @@ import logging
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 
-load_dotenv()
+load_dotenv(".env.local")
+load_dotenv()  # fallback to .env
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +15,24 @@ EPOS_KEYWORDS = ["epos", "sennheiser", "headset", "usb audio"]  # match your dev
 
 class AudioManager:
     def __init__(self):
-        self.pa           = pyaudio.PyAudio()
-        self.eleven       = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
+        self.pa = None
+        self.eleven = None
+        self.input_device = None
+        self.output_device = None
+        self.audio_available = False
+
+        try:
+            self.pa = pyaudio.PyAudio()
+            self.audio_available = True
+        except Exception as e:
+            logger.error(f"PyAudio init failed (no audio hardware?): {e}")
+            return
+
+        try:
+            self.eleven = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
+        except Exception as e:
+            logger.error(f"ElevenLabs init failed: {e}")
+
         self.input_device  = self._find_device(input=True)
         self.output_device = self._find_device(input=False)
 
@@ -33,6 +50,8 @@ class AudioManager:
 
     def _find_device(self, input: bool) -> dict | None:
         """Find EPOS device by name, fall back to None (system default)."""
+        if not self.pa:
+            return None
         for i in range(self.pa.get_device_count()):
             info = self.pa.get_device_info_by_index(i)
             name = info["name"].lower()
@@ -45,6 +64,8 @@ class AudioManager:
         return None
 
     def list_devices(self) -> dict:
+        if not self.pa:
+            return {"inputs": [], "outputs": [], "active_mic": None, "active_speaker": None, "error": "Audio not available"}
         inputs, outputs = [], []
         for i in range(self.pa.get_device_count()):
             info = self.pa.get_device_info_by_index(i)
@@ -63,6 +84,8 @@ class AudioManager:
     # ── Listen + transcribe ───────────────────────────────
 
     def listen(self, duration_seconds: int = 5) -> dict:
+        if not self.audio_available:
+            return {"transcript": "", "language": "unknown", "duration_seconds": duration_seconds, "error": "Audio not available"}
         RATE     = 16000
         CHUNK    = 1024
         CHANNELS = 1
@@ -72,14 +95,18 @@ class AudioManager:
 
         logger.info(f"Recording {duration_seconds}s from {self.input_device or 'default'}")
 
-        stream = self.pa.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            input=True,
-            input_device_index=device_index,
-            frames_per_buffer=CHUNK
-        )
+        try:
+            stream = self.pa.open(
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=CHUNK
+            )
+        except OSError as e:
+            logger.error(f"Failed to open audio stream: {e}")
+            return {"transcript": "", "language": "unknown", "duration_seconds": duration_seconds, "error": str(e)}
 
         frames = []
         for _ in range(int(RATE / CHUNK * duration_seconds)):
@@ -119,6 +146,9 @@ class AudioManager:
     # ── Text to speech (ElevenLabs) ───────────────────────
 
     def say(self, text: str, voice: str = "Rachel"):
+        if not self.eleven:
+            logger.error("ElevenLabs not initialized — cannot speak")
+            return
         logger.info(f"Speaking: {text}")
         try:
             audio_gen = self.eleven.text_to_speech.convert(
@@ -134,8 +164,8 @@ class AudioManager:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
 
-            # Play the audio file
-            os.system(f'start /min "" "{tmp_path}"')
+            # Play the audio file (Linux — requires mpg123: sudo apt install mpg123)
+            os.system(f'mpg123 -q "{tmp_path}" && rm -f "{tmp_path}"')
         except Exception as e:
             logger.error(f"ElevenLabs TTS failed: {e}")
 
@@ -147,10 +177,23 @@ class AudioManager:
         Calls callback(transcript_dict) for each chunk.
         Runs forever — meant to be called from a background thread.
         """
+        if not self.audio_available:
+            logger.error("Audio not available — continuous listening disabled")
+            return
         logger.info("Starting continuous listening...")
         while True:
-            result = self.listen(duration_seconds=chunk_seconds)
-            if result["transcript"]:
-                logger.info(f"Heard: {result['transcript']}")
-                if callback:
-                    callback(result)
+            try:
+                result = self.listen(duration_seconds=chunk_seconds)
+                if "error" in result:
+                    logger.warning(f"Listen error, retrying in 10s: {result['error']}")
+                    import time
+                    time.sleep(10)
+                    continue
+                if result["transcript"]:
+                    logger.info(f"Heard: {result['transcript']}")
+                    if callback:
+                        callback(result)
+            except Exception as e:
+                logger.error(f"Continuous listener error: {e}")
+                import time
+                time.sleep(10)

@@ -1,0 +1,10 @@
+.env
+.env.local
+STATUS.md
+devices.json
+__pycache__/
+*.pyc
+*.pyo
+*.wav
+*.mp3
+/tmp/

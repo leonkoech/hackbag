@@ -1,5 +1,8 @@
 flask
 requests
 pyaudio
-openai-whisper
-pyttsx3
+elevenlabs
+python-dotenv
+ultralytics
+anthropic
+pillow

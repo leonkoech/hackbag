@@ -1,0 +1,71 @@
+{
+  "name": "driftpak-body",
+  "description": "Hardware interface for the Driftpak smart backpack. Controls camera, GPS, LEDs, audio, and device discovery via the Flask server running on localhost:5000.",
+  "tools": [
+    {
+      "name": "take_photo",
+      "description": "Capture a photo from the ESP32-S3-CAM. Returns a JPEG image. Use this to see what's around you or inside the bag.",
+      "command": "curl -s http://localhost:5000/camera/capture --output /tmp/driftpak_photo.jpg && echo 'Photo saved to /tmp/driftpak_photo.jpg'"
+    },
+    {
+      "name": "check_devices",
+      "description": "Ping all ESP32 devices and check which body parts are online.",
+      "command": "curl -s http://localhost:5000/devices/status"
+    },
+    {
+      "name": "get_gps",
+      "description": "Get current GPS location (latitude, longitude, speed, satellites).",
+      "command": "curl -s http://localhost:5000/gps"
+    },
+    {
+      "name": "led_on",
+      "description": "Turn on the LED strip on the bag strap. Use brightness 0-255.",
+      "command": "curl -s -X POST 'http://localhost:5000/led?state=on&brightness=200'"
+    },
+    {
+      "name": "led_off",
+      "description": "Turn off the LED strip.",
+      "command": "curl -s -X POST 'http://localhost:5000/led?state=off'"
+    },
+    {
+      "name": "say",
+      "description": "Speak out loud through the EPOS speaker. Keep messages short and natural.",
+      "command": "curl -s -X POST http://localhost:5000/audio/say -H 'Content-Type: application/json' -d '{\"text\": \"$TEXT\"}'"
+    },
+    {
+      "name": "listen",
+      "description": "Actively listen through the microphone for a specified duration and transcribe.",
+      "command": "curl -s -X POST http://localhost:5000/audio/listen -H 'Content-Type: application/json' -d '{\"duration_seconds\": 5}'"
+    },
+    {
+      "name": "get_transcripts",
+      "description": "Get recent speech transcripts from the continuous background listener. Poll this regularly to know what your owner is saying.",
+      "command": "curl -s http://localhost:5000/audio/transcripts"
+    },
+    {
+      "name": "list_audio_devices",
+      "description": "List all available audio input/output devices and which are active.",
+      "command": "curl -s http://localhost:5000/audio/devices"
+    },
+    {
+      "name": "scan_network",
+      "description": "Scan the local network for new ESP32 devices. New devices with /docs are auto-registered.",
+      "command": "curl -s -X POST http://localhost:5000/admin/scan"
+    },
+    {
+      "name": "list_registered_devices",
+      "description": "List all registered ESP32 devices and their capabilities.",
+      "command": "curl -s http://localhost:5000/admin/devices"
+    },
+    {
+      "name": "list_routes",
+      "description": "List all dynamic proxy routes for discovered devices.",
+      "command": "curl -s http://localhost:5000/admin/routes"
+    },
+    {
+      "name": "read_api_docs",
+      "description": "Read the full API documentation. Do this on startup to understand all available capabilities.",
+      "command": "curl -s http://localhost:5000/docs"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ from device_manager import DeviceManager
 from audio_manager import AudioManager
 from device_registry import DeviceRegistry
 from route_builder import build_routes, build_all_routes
+from vision_manager import VisionManager
 import logging
 import threading
 from collections import deque
@@ -16,6 +17,7 @@ ESP_GPS_IP  = "192.168.137.xx"   # ESP32 WROOM-32 GPS node  ← update this
 
 devices  = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP)
 audio    = AudioManager()
+vision   = VisionManager(devices=devices)
 registry = DeviceRegistry()
 
 # ── Continuous listening buffer ──
@@ -61,6 +63,19 @@ def docs():
                 "path": "/camera/stream",
                 "method": "GET",
                 "description": "Proxy MJPEG stream from ESP32-S3-CAM for YOLO inference"
+            },
+            {
+                "path": "/camera/detect",
+                "method": "GET",
+                "description": "Run YOLOv8 object detection on camera image. Fast, offline, 80 COCO classes.",
+                "response": {"detections": [{"class": "backpack", "confidence": 0.95, "bbox": []}], "count": 1}
+            },
+            {
+                "path": "/camera/identify",
+                "method": "GET",
+                "description": "YOLO + Claude Vision for comprehensive object identification. Recognizes brands, text, anything.",
+                "params": {"prompt": "optional custom question about the image"},
+                "response": {"detections": [], "yolo_count": 0, "claude": "detailed description"}
             },
             {
                 "path": "/gps",
@@ -157,6 +172,27 @@ def camera_stream():
         devices.stream(),
         mimetype="multipart/x-mixed-replace; boundary=frame"
     )
+
+# ═══════════════════════════════════════════════════════════
+#  VISION — YOLO + Claude Vision
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/camera/detect", methods=["GET"])
+def camera_detect():
+    """Run YOLOv8 object detection on a camera capture."""
+    result = vision.detect()
+    if "error" in result and not result.get("detections"):
+        return jsonify(result), 503
+    return jsonify(result)
+
+@app.route("/camera/identify", methods=["GET"])
+def camera_identify():
+    """YOLO + Claude Vision for comprehensive identification."""
+    prompt = request.args.get("prompt")
+    result = vision.identify(prompt=prompt)
+    if "error" in result and not result.get("detections"):
+        return jsonify(result), 503
+    return jsonify(result)
 
 # ═══════════════════════════════════════════════════════════
 #  GPS
@@ -289,5 +325,9 @@ if __name__ == "__main__":
     print(f"   GPS  → http://{ESP_GPS_IP}")
     print(f"   API  → http://localhost:5000")
     print(f"   Docs → http://localhost:5000/docs\n")
-    listener_thread.start()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    if audio.audio_available:
+        listener_thread.start()
+        print("   🎧 Continuous listener started")
+    else:
+        print("   ⚠️  Audio unavailable — listener disabled, non-audio endpoints still work")
+    app.run(host="0.0.0.0", port=5000, debug=False)

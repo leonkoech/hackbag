@@ -11,10 +11,12 @@ pip install -r requirements.txt
 
 > On Raspberry Pi you may also need:
 > ```bash
-> sudo apt-get install portaudio19-dev espeak
+> sudo apt-get install portaudio19-dev mpg123
 > ```
 
 ## Config
+
+Copy `.env.example` to `.env.local` and fill in your API keys (ElevenLabs, Anthropic, etc.).
 
 Edit the IPs at the top of `app.py`:
 ```python
@@ -42,7 +44,9 @@ Server starts at http://localhost:5000
 | POST | /led?state=on&brightness=200 | Control LEDs |
 | GET | /audio/devices | List audio devices |
 | POST | /audio/say | Text to speech via EPOS |
-| POST | /audio/listen | Record + transcribe via Whisper |
+| POST | /audio/listen | Record + transcribe via ElevenLabs |
+| GET | /camera/detect | YOLO object detection |
+| GET | /camera/identify | YOLO + Claude Vision |
 
 ## EPOS Device
 
