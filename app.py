@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, Response, send_file
 from device_manager import DeviceManager
 from audio_manager import AudioManager
 from device_registry import DeviceRegistry
@@ -12,8 +12,8 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # ── Config — update these IPs after checking Serial Monitor ──
-ESP_CAM_IP  = "192.168.137.104"  # GOOUUU ESP32-S3-CAM
-ESP_GPS_IP  = "192.168.137.150"  # ESP32 WROOM-32 GPS node
+ESP_CAM_IP  = "192.168.137.140"  # GOOUUU ESP32-S3-CAM
+ESP_GPS_IP  = "192.168.137.28"  # ESP32 WROOM-32 GPS node
 ESP_AIR_IP  = "192.168.137.115"  # Air quality sensor
 
 devices  = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP, air_ip=ESP_AIR_IP)
@@ -32,6 +32,14 @@ listener_thread = threading.Thread(
     kwargs={"chunk_seconds": 5, "callback": _on_transcript},
     daemon=True,
 )
+
+# ═══════════════════════════════════════════════════════════
+#  DASHBOARD
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/", methods=["GET"])
+def dashboard():
+    return send_file("dashboard.html")
 
 # ═══════════════════════════════════════════════════════════
 #  DOCS — agent reads this first
@@ -137,14 +145,14 @@ def docs():
                 "path": "/admin/register",
                 "method": "POST",
                 "description": "Manually register an ESP32 device by IP. Fetches /docs and creates proxy routes.",
-                "body": {"ip": "192.168.137.xx"},
+                "body": {"ip": "192.168.137.28"},
                 "response": {"device": {}, "routes_added": []}
             },
             {
                 "path": "/admin/unregister",
                 "method": "POST",
                 "description": "Remove a registered device",
-                "body": {"ip": "192.168.137.xx"}
+                "body": {"ip": "192.168.137.28"}
             },
             {
                 "path": "/admin/routes",

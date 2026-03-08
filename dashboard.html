@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Driftpak Live Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .header { background: linear-gradient(135deg, #1a3a2a, #0d1f15); padding: 16px 24px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #2a4a3a; }
+  .header h1 { font-size: 24px; color: #4ade80; }
+  .header .status { font-size: 12px; padding: 4px 10px; border-radius: 12px; background: #166534; color: #4ade80; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .card { background: #141414; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; }
+  .card-header { padding: 12px 16px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
+  .card-header h2 { font-size: 14px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .card-body { padding: 16px; }
+  .cam-feed { width: 100%; aspect-ratio: 4/3; background: #000; display: flex; align-items: center; justify-content: center; border-radius: 8px; overflow: hidden; }
+  .cam-feed img { width: 100%; height: 100%; object-fit: contain; }
+  .device-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #1a1a1a; }
+  .device-row:last-child { border-bottom: none; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+  .dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  .dot.off { background: #666; }
+  .transcript-log { max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; }
+  .transcript-entry { padding: 4px 0; border-bottom: 1px solid #1a1a1a; }
+  .transcript-entry .time { color: #666; font-size: 11px; }
+  .gps-data { font-family: monospace; font-size: 16px; }
+  .gps-data .value { color: #4ade80; font-size: 20px; font-weight: bold; }
+  .full-width { grid-column: 1 / -1; }
+  .refresh-note { text-align: center; padding: 8px; color: #555; font-size: 11px; }
+  .air-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; text-align: center; }
+  .air-val { font-size: 28px; font-weight: bold; color: #4ade80; }
+  .air-label { font-size: 11px; color: #888; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span style="font-size:28px">🎒</span>
+  <h1>Driftpak</h1>
+  <span class="status" id="server-status">CONNECTING...</span>
+  <span style="flex:1"></span>
+  <span style="color:#666;font-size:12px" id="clock"></span>
+</div>
+
+<div class="grid">
+  <!-- Camera Feed -->
+  <div class="card">
+    <div class="card-header"><h2>📷 Camera Feed</h2><span id="cam-status" style="font-size:12px;color:#666">--</span></div>
+    <div class="card-body">
+      <div class="cam-feed"><img id="cam-img" src="" alt="Camera feed"></div>
+    </div>
+  </div>
+
+  <!-- Device Status -->
+  <div class="card">
+    <div class="card-header"><h2>🔌 Devices</h2></div>
+    <div class="card-body" id="devices-list">
+      <div class="device-row"><span><span class="dot off"></span>Loading...</span></div>
+    </div>
+  </div>
+
+  <!-- Transcripts -->
+  <div class="card">
+    <div class="card-header"><h2>🎤 Live Transcripts</h2><span id="transcript-count" style="font-size:12px;color:#666">0</span></div>
+    <div class="card-body">
+      <div class="transcript-log" id="transcripts">
+        <div class="transcript-entry" style="color:#555">Waiting for audio...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GPS + Air -->
+  <div class="card">
+    <div class="card-header"><h2>📍 Location & Air</h2></div>
+    <div class="card-body">
+      <div class="gps-data" id="gps-data" style="margin-bottom:16px">
+        <div>Lat: <span class="value" id="gps-lat">--</span></div>
+        <div>Lng: <span class="value" id="gps-lng">--</span></div>
+        <div>Sats: <span id="gps-sats">--</span> | Fix: <span id="gps-fix">--</span></div>
+      </div>
+      <div class="air-grid" id="air-data">
+        <div><div class="air-val" id="air-pm25">--</div><div class="air-label">PM2.5</div></div>
+        <div><div class="air-val" id="air-pm10">--</div><div class="air-label">PM10</div></div>
+        <div><div class="air-val" id="air-aqi">--</div><div class="air-label">AQI</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="refresh-note">Auto-refreshes every 2s | Camera every 1s | Connected via Tailscale</div>
+
+<script>
+const API = window.location.origin;
+let camTimer, dataTimer;
+
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// Camera refresh
+function refreshCamera() {
+  const img = document.getElementById('cam-img');
+  const newImg = new Image();
+  newImg.onload = () => {
+    img.src = newImg.src;
+    document.getElementById('cam-status').textContent = 'LIVE';
+    document.getElementById('cam-status').style.color = '#4ade80';
+  };
+  newImg.onerror = () => {
+    document.getElementById('cam-status').textContent = 'OFFLINE';
+    document.getElementById('cam-status').style.color = '#f87171';
+  };
+  newImg.src = API + '/camera/capture?' + Date.now();
+}
+
+// Device status
+async function refreshDevices() {
+  try {
+    const res = await fetch(API + '/devices/status');
+    const data = await res.json();
+    document.getElementById('server-status').textContent = 'ONLINE';
+    document.getElementById('server-status').style.background = '#166534';
+
+    let html = '';
+    const names = { camera_esp: '📷 Camera', gps_esp: '📍 GPS', air_quality: '🌬️ Air Quality' };
+    for (const [key, val] of Object.entries(data)) {
+      const on = val.online;
+      html += `<div class="device-row"><span><span class="dot ${on?'on':'off'}"></span>${names[key]||key}</span><span style="color:${on?'#4ade80':'#666'};font-size:12px">${val.ip}</span></div>`;
+    }
+
+    // Audio
+    const audioRes = await fetch(API + '/audio/devices');
+    const audio = await audioRes.json();
+    const micOn = audio.active_mic !== null;
+    html += `<div class="device-row"><span><span class="dot ${micOn?'on':'off'}"></span>🎤 EPOS Mic</span><span style="color:${micOn?'#4ade80':'#666'};font-size:12px">${micOn?audio.active_mic.name:'Not connected'}</span></div>`;
+    const spkOn = audio.active_speaker !== null;
+    html += `<div class="device-row"><span><span class="dot ${spkOn?'on':'off'}"></span>🔊 EPOS Speaker</span><span style="color:${spkOn?'#4ade80':'#666'};font-size:12px">${spkOn?audio.active_speaker.name:'Not connected'}</span></div>`;
+
+    document.getElementById('devices-list').innerHTML = html;
+  } catch(e) {
+    document.getElementById('server-status').textContent = 'OFFLINE';
+    document.getElementById('server-status').style.background = '#7f1d1d';
+  }
+}
+
+// Transcripts
+async function refreshTranscripts() {
+  try {
+    const res = await fetch(API + '/audio/transcripts');
+    const data = await res.json();
+    document.getElementById('transcript-count').textContent = data.length;
+    if (data.length === 0) return;
+    let html = '';
+    for (const t of data.slice(-20)) {
+      if (t.transcript) {
+        html += `<div class="transcript-entry">"${t.transcript}" <span class="time">(${t.language})</span></div>`;
+      }
+    }
+    if (html) document.getElementById('transcripts').innerHTML = html;
+    document.getElementById('transcripts').scrollTop = 99999;
+  } catch(e) {}
+}
+
+// GPS
+async function refreshGPS() {
+  try {
+    const res = await fetch(API + '/gps');
+    if (!res.ok) throw 'offline';
+    const data = await res.json();
+    document.getElementById('gps-lat').textContent = data.lat || '--';
+    document.getElementById('gps-lng').textContent = data.lng || '--';
+    document.getElementById('gps-sats').textContent = data.sats || '0';
+    document.getElementById('gps-fix').textContent = data.fix ? 'YES' : 'NO';
+  } catch(e) {
+    document.getElementById('gps-lat').textContent = '--';
+    document.getElementById('gps-fix').textContent = 'OFFLINE';
+  }
+}
+
+// Air quality
+async function refreshAir() {
+  try {
+    const res = await fetch(API + '/air');
+    if (!res.ok) throw 'offline';
+    const data = await res.json();
+    document.getElementById('air-pm25').textContent = data.pm25 || data.PM25 || '--';
+    document.getElementById('air-pm10').textContent = data.pm10 || data.PM10 || '--';
+    document.getElementById('air-aqi').textContent = data.aqi || data.AQI || '--';
+  } catch(e) {}
+}
+
+// Start polling
+refreshCamera();
+refreshDevices();
+refreshTranscripts();
+refreshGPS();
+refreshAir();
+
+setInterval(refreshCamera, 1500);
+setInterval(() => { refreshDevices(); refreshTranscripts(); refreshGPS(); refreshAir(); }, 2500);
+</script>
+</body>
+</html>
