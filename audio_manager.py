@@ -12,6 +12,7 @@ load_dotenv()  # fallback to .env
 logger = logging.getLogger(__name__)
 
 EPOS_KEYWORDS = ["epos", "sennheiser", "headset", "usb audio"]  # match your device name
+DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah - Mature, Reassuring, Confident
 
 class AudioManager:
     def __init__(self):
@@ -145,27 +146,35 @@ class AudioManager:
 
     # ── Text to speech (ElevenLabs) ───────────────────────
 
-    def say(self, text: str, voice: str = "Rachel"):
+    def say(self, text: str, voice: str = None):
         if not self.eleven:
             logger.error("ElevenLabs not initialized — cannot speak")
             return
+        voice = voice or DEFAULT_VOICE_ID
         logger.info(f"Speaking: {text}")
         try:
             audio_gen = self.eleven.text_to_speech.convert(
                 text=text,
                 voice_id=voice,
-                model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128",
+                model_id="eleven_flash_v2_5",
+                output_format="mp3_22050_32",
             )
             audio_bytes = b"".join(audio_gen)
 
-            # Save to temp file and play via pyaudio/system
+            # Save to temp file and play via mpg123
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
 
-            # Play the audio file (Linux — requires mpg123: sudo apt install mpg123)
-            os.system(f'mpg123 -q "{tmp_path}" && rm -f "{tmp_path}"')
+            # Play via ALSA on EPOS — use plughw for format conversion (USB audio needs it)
+            alsa_device = "plughw:2,0"  # default fallback
+            if self.output_device:
+                name = self.output_device.get("name", "")
+                import re
+                m = re.search(r'\(hw:(\d+),(\d+)\)', name)
+                if m:
+                    alsa_device = f"plughw:{m.group(1)},{m.group(2)}"
+            os.system(f'mpg123 -q -o alsa -a {alsa_device} "{tmp_path}" && rm -f "{tmp_path}"')
         except Exception as e:
             logger.error(f"ElevenLabs TTS failed: {e}")
 
