@@ -6,9 +6,10 @@ logger = logging.getLogger(__name__)
 TIMEOUT = 5  # seconds
 
 class DeviceManager:
-    def __init__(self, cam_ip: str, gps_ip: str):
+    def __init__(self, cam_ip: str, gps_ip: str, air_ip: str = None):
         self.cam_base = f"http://{cam_ip}"
         self.gps_base = f"http://{gps_ip}"
+        self.air_base = f"http://{air_ip}" if air_ip else None
 
     # ── Helpers ───────────────────────────────────────────
 
@@ -31,7 +32,7 @@ class DeviceManager:
     def ping_all(self) -> dict:
         cam_ok = self._get(f"{self.cam_base}/ping")
         gps_ok = self._get(f"{self.gps_base}/ping")
-        return {
+        status = {
             "camera_esp": {
                 "ip":     self.cam_base,
                 "online": cam_ok is not None and cam_ok.status_code == 200
@@ -41,6 +42,13 @@ class DeviceManager:
                 "online": gps_ok is not None and gps_ok.status_code == 200
             }
         }
+        if self.air_base:
+            air_ok = self._get(self.air_base)
+            status["air_quality"] = {
+                "ip":     self.air_base,
+                "online": air_ok is not None and air_ok.status_code == 200
+            }
+        return status
 
     # ── Camera ────────────────────────────────────────────
 
@@ -67,6 +75,23 @@ class DeviceManager:
         res = self._get(f"{self.gps_base}/gps")
         if res and res.status_code == 200:
             return res.json()
+        return None
+
+    # ── Air Quality ─────────────────────────────────────────
+
+    def get_air(self) -> dict | None:
+        if not self.air_base:
+            return None
+        res = self._get(f"{self.air_base}/air")
+        if res and res.status_code == 200:
+            return res.json()
+        # Try root endpoint as fallback
+        res = self._get(self.air_base)
+        if res and res.status_code == 200:
+            try:
+                return res.json()
+            except Exception:
+                pass
         return None
 
     # ── LED ───────────────────────────────────────────────

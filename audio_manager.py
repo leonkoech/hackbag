@@ -2,6 +2,8 @@ import pyaudio
 import wave
 import tempfile
 import os
+import threading
+import time
 import logging
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
@@ -46,6 +48,58 @@ class AudioManager:
             logger.info(f"Speaker → {self.output_device['name']}")
         else:
             logger.warning("No EPOS speaker found — using system default")
+
+        # Start hotplug watchdog
+        self._watchdog_thread = threading.Thread(target=self._hotplug_watchdog, daemon=True)
+        self._watchdog_thread.start()
+
+    def _hotplug_watchdog(self, interval=5):
+        """Background thread: re-init PyAudio when mic appears/disappears."""
+        while True:
+            time.sleep(interval)
+            try:
+                # Re-scan devices
+                pa_new = pyaudio.PyAudio()
+                new_input = self._find_device_in(pa_new, input=True)
+                new_output = self._find_device_in(pa_new, input=False)
+
+                mic_was_gone = self.input_device is None
+                mic_now_here = new_input is not None
+
+                if mic_was_gone and mic_now_here:
+                    logger.info(f"🎤 Mic reconnected: {new_input['name']} — reinitializing")
+                    if self.pa:
+                        try: self.pa.terminate()
+                        except: pass
+                    self.pa = pa_new
+                    self.input_device = new_input
+                    self.output_device = new_output
+                    self.audio_available = True
+                elif not mic_was_gone and not mic_now_here:
+                    logger.warning("🔇 Mic disconnected — waiting for reconnect")
+                    self.input_device = None
+                    self.output_device = None
+                    pa_new.terminate()
+                else:
+                    pa_new.terminate()
+            except Exception as e:
+                logger.debug(f"Watchdog error: {e}")
+
+    def _find_device_in(self, pa_instance, input: bool) -> dict | None:
+        """Find EPOS device in a given PyAudio instance."""
+        try:
+            for i in range(pa_instance.get_device_count()):
+                info = pa_instance.get_device_info_by_index(i)
+                name = info["name"].lower()
+                is_input  = info["maxInputChannels"] > 0
+                is_output = info["maxOutputChannels"] > 0
+                if input and not is_input:   continue
+                if not input and not is_output: continue
+                if any(k in name for k in EPOS_KEYWORDS):
+                    return {"index": i, "name": info["name"]}
+        except Exception:
+            pass
+        return None
 
     # ── Device discovery ──────────────────────────────────
 
@@ -156,8 +210,8 @@ class AudioManager:
             audio_gen = self.eleven.text_to_speech.convert(
                 text=text,
                 voice_id=voice,
-                model_id="eleven_flash_v2_5",
-                output_format="mp3_22050_32",
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128",
             )
             audio_bytes = b"".join(audio_gen)
 

@@ -1,6 +1,6 @@
 {
   "name": "driftpak-body",
-  "description": "Hardware interface for the Driftpak smart backpack. Controls camera, GPS, LEDs, audio, and device discovery via the Flask server running on localhost:5000.",
+  "description": "Hardware interface for the Driftpak smart backpack. Controls camera, GPS, air quality sensor, LEDs, audio, and device discovery via the Flask server running on localhost:5000.",
   "tools": [
     {
       "name": "take_photo",
@@ -61,6 +61,11 @@
       "name": "list_routes",
       "description": "List all dynamic proxy routes for discovered devices.",
       "command": "curl -s http://localhost:5000/admin/routes"
+    },
+    {
+      "name": "check_air_quality",
+      "description": "Get air quality readings from the PMS5003 sensor. Returns PM2.5, PM10, AQI, temperature, and humidity. Use this to advise your owner about air conditions on the trail.",
+      "command": "curl -s http://localhost:5000/air"
     },
     {
       "name": "detect_objects",

@@ -12,10 +12,11 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # ── Config — update these IPs after checking Serial Monitor ──
-ESP_CAM_IP  = "192.168.137.52"   # GOOUUU ESP32-S3-CAM
-ESP_GPS_IP  = "192.168.137.xx"   # ESP32 WROOM-32 GPS node  ← update this
+ESP_CAM_IP  = "192.168.137.104"  # GOOUUU ESP32-S3-CAM
+ESP_GPS_IP  = "192.168.137.150"  # ESP32 WROOM-32 GPS node
+ESP_AIR_IP  = "192.168.137.115"  # Air quality sensor
 
-devices  = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP)
+devices  = DeviceManager(cam_ip=ESP_CAM_IP, gps_ip=ESP_GPS_IP, air_ip=ESP_AIR_IP)
 audio    = AudioManager()
 vision   = VisionManager(devices=devices)
 registry = DeviceRegistry()
@@ -40,7 +41,7 @@ listener_thread = threading.Thread(
 def docs():
     return jsonify({
         "server": "Robot Control Server",
-        "description": "Flask API for controlling ESP32 camera, GPS, LEDs and EPOS audio",
+        "description": "Flask API for controlling ESP32 camera, GPS, air quality, LEDs and EPOS audio",
         "base_url": "http://localhost:5000",
         "endpoints": [
             {
@@ -82,6 +83,12 @@ def docs():
                 "method": "GET",
                 "description": "Get current GPS location from GPS node",
                 "response": {"lat": 0.0, "lng": 0.0, "sats": 0, "kmh": 0.0, "fix": True}
+            },
+            {
+                "path": "/air",
+                "method": "GET",
+                "description": "Get air quality readings (PM2.5, PM10, AQI, temperature, humidity)",
+                "response": {"pm25": 0.0, "pm10": 0.0, "aqi": 0, "temp_c": 0.0, "humidity": 0.0}
             },
             {
                 "path": "/led",
@@ -203,6 +210,17 @@ def gps():
     data = devices.get_gps()
     if data is None:
         return jsonify({"error": "GPS node unavailable"}), 503
+    return jsonify(data)
+
+# ═══════════════════════════════════════════════════════════
+#  AIR QUALITY
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/air", methods=["GET"])
+def air_quality():
+    data = devices.get_air()
+    if data is None:
+        return jsonify({"error": "Air quality sensor unavailable"}), 503
     return jsonify(data)
 
 # ═══════════════════════════════════════════════════════════
