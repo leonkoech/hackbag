@@ -3,7 +3,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 5  # seconds
+TIMEOUT = 3  # seconds
 
 class DeviceManager:
     def __init__(self, cam_ip: str, gps_ip: str, air_ip: str = None):

@@ -101,21 +101,22 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// Camera refresh
-function refreshCamera() {
+// Camera — use MJPEG stream for smooth video, fallback to polling
+function startCameraStream() {
   const img = document.getElementById('cam-img');
-  const newImg = new Image();
-  newImg.onload = () => {
-    img.src = newImg.src;
+  img.src = API + '/camera/stream';
+  img.onload = () => {
     document.getElementById('cam-status').textContent = 'LIVE';
     document.getElementById('cam-status').style.color = '#4ade80';
   };
-  newImg.onerror = () => {
+  img.onerror = () => {
     document.getElementById('cam-status').textContent = 'OFFLINE';
     document.getElementById('cam-status').style.color = '#f87171';
+    // Retry stream after 3s
+    setTimeout(startCameraStream, 3000);
   };
-  newImg.src = API + '/camera/capture?' + Date.now();
 }
+function refreshCamera() { /* stream handles it */ }
 
 // Device status
 async function refreshDevices() {
@@ -194,13 +195,12 @@ async function refreshAir() {
 }
 
 // Start polling
-refreshCamera();
+startCameraStream();
 refreshDevices();
 refreshTranscripts();
 refreshGPS();
 refreshAir();
 
-setInterval(refreshCamera, 1500);
 setInterval(() => { refreshDevices(); refreshTranscripts(); refreshGPS(); refreshAir(); }, 2500);
 </script>
 </body>
